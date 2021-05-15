@@ -59,6 +59,7 @@ void tx_bytes(unsigned char *tx_buf, uint16_t len) {
         }
     }
 
+    /* send the end byte */
     buffer[buf_i++] = SLIP_END;
 
     /* write any remaining buffered pieces */
@@ -75,6 +76,7 @@ int main(int argc, char **argv) {
 
     if (argc < 2 || argc > 3) {
         printf("usage: %s device [baud]\n", argv[0]);
+        printf("on mac, use the /dev/cu device and not the /dev/tty device!\n");
         return 1;
     }
 
@@ -89,7 +91,7 @@ int main(int argc, char **argv) {
 
     serial_fd = open(device, O_RDWR | O_NDELAY | O_NOCTTY);
     if (serial_fd == -1) {
-        printf("can't open ");
+        fprintf(stderr, "can't open ");
         perror(device);
         exit(errno);
     }
@@ -119,21 +121,9 @@ int main(int argc, char **argv) {
 
     printf("connected to device successfully, now transmitting packets...\n");
 
-    unsigned char buffer_testall[256];
-    int i;
-    for (i = 0; i < 256; i++) {
-        buffer_testall[i] = (unsigned char)i;
-    }
+    tx_bytes(buffer, sizeof(buffer));
 
-    int idx = 255;
-    for (i = 255; i >= 0; i--) {
-        if (buffer_testall[idx] != i) printf("mismatch buffer_testall[%x] != %x %x\n", idx, buffer_testall[idx], i);
-        idx--;
-    }
-
-    
-    tx_bytes(buffer_testall, sizeof(buffer_testall));
-
+    printf("doing raw input now; type anything to send (no escaping):");
     while (1) {
         size_t n = read(STDIN_FILENO, buffer, sizeof(buffer));
         write(serial_fd, buffer, n);

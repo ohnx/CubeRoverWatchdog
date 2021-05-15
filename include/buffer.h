@@ -1,13 +1,14 @@
 /**
  * @file buffer.h
- * @brief File implementing a simple ring buffer
+ * @brief File implementing a simple buffer
  */
 #ifndef __BUFFER_INC
 #define __BUFFER_INC
 
 #include <stdint.h>
 
-#define BUFFER_SIZE 512
+/* RFC 791: "hosts must be prepared to accept datagrams of up to 576 octets" */
+#define BUFFER_SIZE 576
 
 struct buffer {
     /* the actual array of characters */
@@ -22,10 +23,5 @@ struct buffer {
 
 /* all of the buffers that exist; total = 3KiB used for tx/rx buffers */
 __volatile extern struct buffer uart0rx, uart0tx, uart1rx, uart1tx, i2crx, i2ctx;
-
-/**
- * Allocate n bytes in the buffer x.
- */
-#define buffer_alloc(x, n) (x->used += n)
 
 #endif /* __BUFFER_INC */

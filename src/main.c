@@ -1,9 +1,11 @@
 #include <msp430.h>
 #include "include/buffer.h"
 #include "include/uart.h"
+#include "include/flags.h"
 
-/* define all of the buffers used in other files */
+/* define all of the global variables used in other files */
 __volatile struct buffer uart0rx, uart0tx, uart1rx, uart1tx, i2crx, i2ctx;
+__volatile uint16_t loop_flags;
 
 /**
  * main.c
@@ -17,12 +19,6 @@ int main(void) {
 
     /* set up uart */
     uart_init();
-
-
-	WDTCTL = WDTPW | WDTHOLD;	// stop watchdog timer
-	
-	// Enable changes to port registers
-    PM5CTL0 &= ~LOCKLPM5;
 
     // setup on-board LEDs
     P1OUT &= 0x00;               // Shut down everything
@@ -46,19 +42,45 @@ int main(void) {
     P5IFG &= ~BIT5;               // P5.5 IFG cleared
 
     // setup timer
-    TA0CCTL0 = CCIE;                             // CCR0 interrupt enabled
-    TA0CTL = TASSEL_2 + MC_1 + ID_3;           // SMCLK/8, upmode
-    TA0CCR0 =  10000;                           // 12.5 Hz (pretty sure its not)
+//    TA0CCTL0 = CCIE;                             // CCR0 interrupt enabled
+//    TA0CTL = TASSEL_2 + MC_1 + ID_3;           // SMCLK/8, upmode
+//    TA0CCR0 = 65535;
 
-    PM5CTL0 &= ~LOCKLPM5;                   // Disable the GPIO power-on default high-impedance mode
+    while (1) {
+        /* check if anything happened */
+        __no_operation();
 
-    __bis_SR_register(LPM0_bits + GIE); // Enable all interrupts
+        if (!loop_flags) { /* nothing did */
+            /* set the status register to be in LPM0 */
+            __bis_SR_register(GIE);//LPM0_bits + GIE);
+            continue;
+        }
 
-    while (1)
-    {
-        //__bis_SR_register(LPM0_bits + GIE); // LPM0, ADC12_ISR will force exit
-        __no_operation();}
+        /* a cool thing happened! now time to check what it was */
+        if (loop_flags & FLAG_UART0_RX_PACKET) {
+            /* clear event when done */
+            loop_flags ^= FLAG_UART0_RX_PACKET;
+        }
+        if (loop_flags & FLAG_UART1_RX_PACKET) {
+            /* clear event when done */
+            loop_flags ^= FLAG_UART1_RX_PACKET;
+            P1OUT ^= BIT1;
+        }
+        if (loop_flags & FLAG_I2C_RX_PACKET) {
+            /* clear event when done */
+            loop_flags ^= FLAG_I2C_RX_PACKET;
+        }
+        if (loop_flags & FLAG_BUTTON_PRESSED) {
+            /* debug: send a message! */
+            uart1_tx_nonblocking(5, "Hi!\r\n");
+            /* toggle led */
+            //P1OUT ^= BIT0;
+            /* clear event when done */
+            loop_flags ^= FLAG_BUTTON_PRESSED;
+        }
+    }
 
+    /* hopefully we will never reach here... */
 	return 0;
 }
 
@@ -78,22 +100,13 @@ __interrupt void Port_5(void)
 {
     if (P5IFG & BIT5) {
         // toggle the LED
-        P1OUT &= ~BIT1;
-        P5IFG &= ~(BIT5);/*
-        unsigned int i = 0;
-        for (i = 0; i < 60000; i++) __no_operation();
-        for (i = 0; i < 60000; i++) __no_operation();
-        for (i = 0; i < 60000; i++) __no_operation();
-        for (i = 0; i < 60000; i++) __no_operation();
-        for (i = 0; i < 60000; i++) __no_operation();
-        for (i = 0; i < 60000; i++) __no_operation();
-        for (i = 0; i < 60000; i++) __no_operation();
-        for (i = 0; i < 60000; i++) __no_operation();*/
+        P5IFG &= ~(BIT5);
+        loop_flags |= FLAG_BUTTON_PRESSED;
     }
     if (P5IFG & BIT6) {
-        // clear IFG for both P5.5 and P5.6
-        P1OUT &= ~BIT1;
+        // toggle the LED
         P5IFG &= ~(BIT6);
+        loop_flags |= FLAG_BUTTON_PRESSED;
     }
 }
 

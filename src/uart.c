@@ -5,6 +5,7 @@
  */
 #include <msp430.h>
 #include "include/uart.h"
+#include "include/flags.h"
 
 /* end byte */
 #define SLIP_END 0xC0
@@ -14,22 +15,6 @@
 #define SLIP_ESC_END 0xDC
 /* escaped escape */
 #define SLIP_ESC_ESC 0xDD
-
-/* uart0 rx handler (will only be called after Hercules packet fully rx'd) */
-void (*uart0_rx_handler)(uint16_t len, struct buffer *buf) = (void *)(0);
-
-/* uart1 rx handler (will only be called after SLIP packet fully received) */
-void (*uart1_rx_handler)(uint16_t len, struct buffer *buf) = (void *)(0);
-
-void test_all_chars() {
-    unsigned char i;
-
-    for (i = 255; i >= 0; i--) {
-        if (uart1rx.buf[i] != i) return;
-    }
-
-    P1OUT |= BIT1;
-}
 
 /* ========================== interrupt handlers =========================== */
 
@@ -59,12 +44,18 @@ void __attribute__ ((interrupt(EUSCI_A1_VECTOR))) USCI_A1_ISR (void) {
 
     unsigned char rcv;
 
+    P1OUT |= BIT0;
+
     /* two possibilities; rx or tx */
     switch(__even_in_range(UCA1IV, USCI_UART_UCTXCPTIFG)) {
     case USCI_UART_UCTXIFG: /* transmitted byte successfully */
+        P1OUT |= BIT0;
         if (uart1tx.used == 0) {
             /* done sending; clear IFG */
             UCA1IFG &= ~UCTXIFG;
+
+            /* disable the interrupt handler */
+            UCA1IE &= ~UCTXIE;
         } else {
             /* still more bytes to send */
             /* decrement the number of bytes used */
@@ -96,8 +87,9 @@ void __attribute__ ((interrupt(EUSCI_A1_VECTOR))) USCI_A1_ISR (void) {
         switch (rcv) {
         case SLIP_END:
             /* done reading; skip storing the end byte */
-            /* TODO: add code to call uart0_rx_handler() upon return */
-            test_all_chars();
+            loop_flags |= FLAG_UART1_RX_PACKET;
+            /* TODO: time to exit LPM */
+            //__bic_SR_register_on_exit(LPM3_bits);
             break;
         case SLIP_ESC:
             /* about to start escape sequence; skip storing this byte */
@@ -174,7 +166,9 @@ void uart1_tx_nonblocking(uint16_t length, unsigned char *buffer) {
     unsigned char b;
     uint16_t curr_idx = uart1tx.idx + uart1tx.used;
 
-    for (i = length; i > 0; i--) {
+    // TODO: investigate potentially using DMA here
+    // note that the reason why I initially chose not to use it was to simplify SLIP encoding
+    for (i = 0; i < length; i++) {
         b = buffer[i];
         /* check what byte this is */
         switch (b) {
@@ -202,4 +196,8 @@ void uart1_tx_nonblocking(uint16_t length, unsigned char *buffer) {
             break;
         }
     }
+
+    P1OUT ^= BIT1;
+    UCA1IE |= UCTXIE; // Enable USCI_A1 TX interrupt
+    UCA1IFG &= ~UCTXIFG;
 }
